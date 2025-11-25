@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roleplay de Inglês</title>
+    <title>D-ROX AI: Conversational English</title>
     <!-- Carrega Tailwind CSS para um design limpo e responsivo -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Configuração de fontes e cores -->
@@ -18,22 +18,34 @@
             overflow-y: auto;
             scroll-behavior: smooth;
         }
+        /* Efeito de gravação */
+        .recording-pulse {
+            animation: pulse-red 1s infinite;
+        }
+        @keyframes pulse-red {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 bg-gray-100">
 
     <div class="w-full max-w-lg bg-white shadow-xl rounded-2xl flex flex-col h-[90vh]">
         <!-- Header da Aplicação -->
-        <header class="p-5 border-b border-gray-200 bg-indigo-600 text-white rounded-t-2xl">
-            <h1 class="text-2xl font-bold">Hello!!! 🛎️</h1>
-            <p class="text-sm opacity-90">Simulação de Check-in em Hotel em Londres</p>
+        <header class="p-5 border-b border-gray-200 bg-gray-800 text-white rounded-t-2xl">
+            <h1 class="text-2xl font-bold">D-ROX AI 🤖</h1>
+            <p class="text-sm opacity-90">Simulação de Conversação: Recepcionista Britânico</p>
         </header>
 
         <!-- Container do Chat (Histórico) -->
-        <div id="chat-history" class="chat-container flex-grow p-4 space-y-4">
-            <!-- Mensagem de boas-vindas da IA -->
+        <div id="chat-history-container" class="chat-container flex-grow p-4 space-y-4">
+            <!-- Mensagem de boas-vindas da IA (Primeira Mensagem) -->
             <div class="flex justify-start">
-                <div class="bg-indigo-100 text-indigo-900 p-3 rounded-xl rounded-tl-none shadow-md max-w-xs md:max-w-md">
+                <div id="initial-ai-message" class="bg-gray-100 text-gray-900 p-3 rounded-xl rounded-tl-none shadow-md max-w-xs md:max-w-md">
                     <p class="font-semibold text-sm">Mr. Smith (Recepcionista)</p>
                     <p class="text-base">Good afternoon, and welcome to The Pepper Inn. Are you checking in today?</p>
                 </div>
@@ -55,7 +67,7 @@
                 </button>
 
                 <!-- Status e Mensagem de Ajuda -->
-                <p id="status-message" class="text-sm text-gray-600 flex-grow text-center">Pressione para falar com o Mr. Smith.</p>
+                <p id="status-message" class="text-sm text-gray-600 flex-grow text-center">Pressione e segure o microfone para falar com o Mr. Smith.</p>
                 
             </div>
             <div id="error-box" class="mt-2 text-sm text-red-700 bg-red-100 p-2 rounded-lg hidden"></div>
@@ -67,7 +79,7 @@
 
     <script>
         // Variáveis globais
-        const chatHistory = document.getElementById('chat-history');
+        const chatHistoryContainer = document.getElementById('chat-history-container');
         const recordButton = document.getElementById('record-button');
         const micIcon = document.getElementById('mic-icon');
         const stopIcon = document.getElementById('stop-icon');
@@ -77,10 +89,21 @@
         
         let mediaRecorder;
         let audioChunks = [];
-        let isRecording = false;
+        let isProcessing = false;
+
+        // Armazena o histórico da conversa para manter o contexto
+        // Formato: [{role: 'user', text: '...'}, {role: 'ai', text: '...'}]
+        const chatHistory = [];
+        
+        // Adiciona a mensagem inicial ao histórico (Mr. Smith's greeting)
+        document.addEventListener('DOMContentLoaded', () => {
+            const initialMessageElement = document.getElementById('initial-ai-message');
+            const initialText = initialMessageElement.querySelector('.text-base').textContent;
+            chatHistory.push({ role: 'ai', text: initialText });
+        });
 
         // 🚨 ENDPOINT DO SEU BACKEND
-        // Este é o URL da função que você irá configurar no Google Cloud Functions (Fase 2).
+        // **SUBSTITUA ESTE VALOR COM A URL DA SUA CLOUD FUNCTION APÓS O DEPLOY!**
         const API_ENDPOINT = "YOUR_CLOUD_FUNCTION_URL_AQUI"; 
         
         // --- Funções de UI e Estado ---
@@ -101,15 +124,15 @@
 
             if (role === 'user') {
                 messageWrapper.className = 'flex justify-end';
-                messageBubble.className = 'bg-indigo-500 text-white p-3 rounded-xl rounded-br-none shadow-md max-w-xs md:max-w-md';
+                messageBubble.className = 'bg-gray-800 text-white p-3 rounded-xl rounded-br-none shadow-md max-w-xs md:max-w-md';
             } else { // 'ai'
                 messageWrapper.className = 'flex justify-start';
-                messageBubble.className = 'bg-indigo-100 text-indigo-900 p-3 rounded-xl rounded-tl-none shadow-md max-w-xs md:max-w-md';
+                messageBubble.className = 'bg-gray-100 text-gray-900 p-3 rounded-xl rounded-tl-none shadow-md max-w-xs md:max-w-md';
             }
 
             messageWrapper.appendChild(messageBubble);
-            chatHistory.appendChild(messageWrapper);
-            chatHistory.scrollTop = chatHistory.scrollHeight; // Rola para o final
+            chatHistoryContainer.appendChild(messageWrapper);
+            chatHistoryContainer.scrollTop = chatHistoryContainer.scrollHeight; // Rola para o final
         }
 
         function showStatus(message, isError = false) {
@@ -122,27 +145,46 @@
             }
         }
         
-        function setRecordingState(recording) {
-            isRecording = recording;
-            recordButton.disabled = recording; // Desabilita o botão enquanto processa
-            micIcon.classList.toggle('hidden', recording);
-            stopIcon.classList.toggle('hidden', !recording);
-            recordButton.classList.toggle('bg-gray-500', recording);
-            recordButton.classList.toggle('bg-red-500', !recording);
+        function setProcessingState(processing, isRecording = false) {
+            isProcessing = processing;
+            recordButton.disabled = processing;
+            
+            // Estado de Gravação (Apenas no mousedown/touchstart)
+            if (isRecording) {
+                recordButton.classList.remove('bg-red-500', 'hover:bg-red-600');
+                recordButton.classList.add('bg-red-700', 'recording-pulse');
+                micIcon.classList.remove('hidden');
+                stopIcon.classList.add('hidden');
+            } 
+            // Estado de Processamento (Após soltar o botão)
+            else if (processing) {
+                recordButton.classList.remove('bg-red-700', 'recording-pulse');
+                recordButton.classList.add('bg-gray-500');
+                micIcon.classList.add('hidden');
+                stopIcon.classList.remove('hidden'); // Exibe o ícone de 'parar' para indicar que está ocupado
+            }
+            // Estado Pronto
+            else {
+                recordButton.classList.remove('bg-red-700', 'recording-pulse', 'bg-gray-500');
+                recordButton.classList.add('bg-red-500', 'hover:bg-red-600');
+                micIcon.classList.remove('hidden');
+                stopIcon.classList.add('hidden');
+            }
         }
 
         // --- Funções de Áudio e Comunicação ---
 
         function startRecording() {
+            if (isProcessing) return;
+            
+            // Verifica o placeholder ANTES de começar a gravar
             if (API_ENDPOINT.includes("YOUR_CLOUD_FUNCTION_URL_AQUI")) {
                 showStatus("ERRO: Configure o URL do backend na variável 'API_ENDPOINT' no código.", true);
                 return;
             }
             
-            if (isRecording) return;
-            
+            setProcessingState(true, true); // True para processamento, True para isRecording (pulso)
             showStatus("Gravando... Solte para enviar.", false);
-            setRecordingState(true);
             
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then(stream => {
@@ -159,7 +201,7 @@
                 })
                 .catch(err => {
                     showStatus("Erro ao acessar o microfone: " + err.message, true);
-                    setRecordingState(false);
+                    setProcessingState(false);
                 });
         }
 
@@ -169,13 +211,14 @@
                 // Parar as faixas para liberar o microfone
                 mediaRecorder.stream.getTracks().forEach(track => track.stop());
                 showStatus("Processando áudio e gerando resposta da IA...", false);
+                setProcessingState(true); // Entra no estado de processamento (sem pulso)
             }
         }
 
         async function sendAudioToServer() {
             if (audioChunks.length === 0) {
                 showStatus("Gravação muito curta ou vazia.", true);
-                setRecordingState(false);
+                setProcessingState(false);
                 return;
             }
             
@@ -183,6 +226,9 @@
             const formData = new FormData();
             formData.append('audio_file', audioBlob, 'recording.webm');
             
+            // Adiciona o histórico da conversa como JSON string
+            formData.append('chat_history', JSON.stringify(chatHistory));
+
             try {
                 // 1. Envia o áudio (Backend fará STT, Gemini, e TTS)
                 const response = await fetch(API_ENDPOINT, {
@@ -197,13 +243,15 @@
 
                 const data = await response.json();
                 
-                // 2. Adiciona a transcrição do aluno
-                const userText = data.user_text || "Não foi possível transcrever. Clique para tentar novamente.";
+                // 2. Adiciona a transcrição do aluno e salva no histórico
+                const userText = data.user_text || "Não foi possível transcrever o áudio.";
                 appendMessage('user', userText);
+                chatHistory.push({ role: 'user', text: userText });
                 
-                // 3. Adiciona a resposta da IA
+                // 3. Adiciona a resposta da IA e salva no histórico
                 const aiText = data.ai_text || "Desculpe, não consegui obter uma resposta.";
                 appendMessage('ai', aiText);
+                chatHistory.push({ role: 'ai', text: aiText });
                 
                 // 4. Reproduz o áudio da IA
                 if (data.ai_audio_base64) {
@@ -218,7 +266,7 @@
                 console.error('Erro de comunicação com o backend:', error);
                 showStatus(`Erro: Falha na comunicação com o servidor. Detalhe: ${error.message}`, true);
             } finally {
-                setRecordingState(false);
+                setProcessingState(false);
             }
         }
 
@@ -242,4 +290,3 @@
 </body>
 
 </html>
-
